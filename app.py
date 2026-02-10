@@ -3,6 +3,7 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import os
 
 # =====================================================
 # KONFIGURASI APLIKASI
@@ -13,7 +14,12 @@ st.set_page_config(
     page_icon="📊"
 )
 
-DATA_FILE = "data_kuesioner.xlsx"
+# --- PERBAIKAN: MENGGUNAKAN ABSOLUTE PATH ---
+# Mendapatkan folder tempat script app.py ini berada
+current_dir = os.path.dirname(os.path.abspath(__file__))
+# Menggabungkan path folder dengan nama file
+DATA_FILE = os.path.join(current_dir, "data_kuesioner.xlsx")
+# --------------------------------------------
 
 # =====================================================
 # FUNGSI BANTU (HELPER FUNCTIONS)
@@ -48,27 +54,42 @@ def muat_data():
     """
     Memuat dan mempersiapkan data dari file Excel Kuesioner
     """
+    # Cek apakah file ada sebelum mencoba membaca
+    if not os.path.exists(DATA_FILE):
+        st.error(f"❌ File tidak ditemukan di lokasi: {DATA_FILE}")
+        st.stop()
+
     try:
-        # Load Data
-        df = pd.read_excel(DATA_FILE, sheet_name="Kuesioner", engine="openpyxl")
+        # Load Data (Tanpa spesifik sheet_name agar membaca sheet pertama secara default)
+        df = pd.read_excel(DATA_FILE, engine="openpyxl")
         
         # Hapus kolom Partisipan jika ada
         if 'Partisipan' in df.columns:
             df = df.drop(columns=['Partisipan'])
             
         # Buat dataframe versi numerik untuk perhitungan skor
+        # Hanya mengganti nilai yang ada di map, sisanya biarkan (untuk handling error)
         df_numeric = df.replace(SKOR_MAP)
         
+        # Pastikan data numerik benar-benar angka (coerce error to NaN)
+        for col in df_numeric.columns:
+            df_numeric[col] = pd.to_numeric(df_numeric[col], errors='coerce')
+
         return df, df_numeric
+
+    except ImportError:
+        st.error("❌ Library 'openpyxl' belum terinstall. Silakan jalankan `pip install openpyxl` di terminal.")
+        return pd.DataFrame(), pd.DataFrame()
     except Exception as e:
-        st.error(f"❌ Gagal memuat data: {str(e)}")
+        st.error(f"❌ Gagal memuat data. Detail Error: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
 
+# Load Data Utama
 df, df_numeric = muat_data()
 
-# Validasi data
+# Validasi data kosong
 if df.empty:
-    st.error("❌ Data tidak ditemukan atau file kosong. Pastikan 'data_kuesioner.xlsx' ada di folder yang sama.")
+    st.warning("⚠️ Data berhasil dimuat tapi kosong, atau terjadi error saat loading.")
     st.stop()
 
 # =====================================================
@@ -117,8 +138,10 @@ if menu == "📊 Dashboard Utama":
     
     # Hitung KPI Global
     total_responden = len(df)
-    total_sel = df_display.size
-    rata_rata_global = df_num_display.values.flatten().mean()
+    
+    # Rata-rata global (mengabaikan NaN)
+    rata_rata_global = df_num_display.values.flatten()
+    rata_rata_global = rata_rata_global[~pd.isna(rata_rata_global)].mean()
     
     # Mencari Pertanyaan dengan Skor Tertinggi & Terendah
     mean_per_q = df_num_display.mean()
@@ -141,7 +164,7 @@ if menu == "📊 Dashboard Utama":
         st.metric(
             label="⭐ Rata-rata Skor Global",
             value=f"{rata_rata_global:.2f} / 6.00",
-            delta=f"Skala 1-6"
+            delta="Skala 1-6"
         )
 
     col3, col4 = st.columns(2)
@@ -149,15 +172,15 @@ if menu == "📊 Dashboard Utama":
     with col3:
         st.metric(
             label="🏆 Pertanyaan Terbaik",
-            value=best_q,
-            delta=f"Skor: {best_score:.2f}"
+            value=best_q if pd.notna(best_q) else "-",
+            delta=f"Skor: {best_score:.2f}" if pd.notna(best_score) else "-"
         )
 
     with col4:
         st.metric(
             label="⚠️ Perlu Perhatian",
-            value=worst_q,
-            delta=f"Skor: {worst_score:.2f}",
+            value=worst_q if pd.notna(worst_q) else "-",
+            delta=f"Skor: {worst_score:.2f}" if pd.notna(worst_score) else "-",
             delta_color="inverse"
         )
 
@@ -168,6 +191,9 @@ if menu == "📊 Dashboard Utama":
     
     # Data Flatten untuk distribusi global
     all_vals = df_display.values.flatten()
+    # Filter hanya nilai valid
+    all_vals = [v for v in all_vals if v in URUTAN_SKALA]
+    
     dist_global = pd.Series(all_vals).value_counts().reindex(URUTAN_SKALA).fillna(0).reset_index()
     dist_global.columns = ["Skala", "Jumlah"]
     
@@ -258,7 +284,7 @@ elif menu == "⭐ Peringkat Skor":
     # Hitung rata-rata
     avg_scores = df_num_display.mean().reset_index()
     avg_scores.columns = ["Pertanyaan", "Rata_rata_Skor"]
-    avg_scores = avg_scores.sort_values("Rata_rata_Skor", ascending=True) # Ascending agar bar chart horizontal urut dari atas (best)
+    avg_scores = avg_scores.sort_values("Rata_rata_Skor", ascending=True)
     
     tab1, tab2 = st.tabs(["📊 Bar Chart", "📉 Analisis Detail"])
     
@@ -316,6 +342,9 @@ elif menu == "🎭 Analisis Sentimen/Kategori":
     
     # Normalize to percentage
     cat_per_q['Total'] = cat_per_q['Positif'] + cat_per_q['Netral'] + cat_per_q['Negatif']
+    # Hindari pembagian dengan nol
+    cat_per_q['Total'] = cat_per_q['Total'].replace(0, 1)
+    
     cat_per_q['Pct_Positif'] = (cat_per_q['Positif'] / cat_per_q['Total']) * 100
     cat_per_q['Pct_Netral'] = (cat_per_q['Netral'] / cat_per_q['Total']) * 100
     cat_per_q['Pct_Negatif'] = (cat_per_q['Negatif'] / cat_per_q['Total']) * 100
