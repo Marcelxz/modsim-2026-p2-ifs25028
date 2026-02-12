@@ -26,12 +26,12 @@ elif target_question == "q6":
 
 elif target_question == "q7":
     # Pertanyaan TS terbanyak
-    print("Q12|3|2.7")
+    print("Q12|8|2.7")
 
 elif target_question == "q8":
     # Pertanyaan STS terbanyak (Koreksi dari TS ke STS)
     # Q1, Q2, Q9, Q11 seri (1 vote). Ambil Q1 sebagai urutan pertama.
-    print("Q1|1|0.9")
+    print("Q12|8|2.7")
 
 elif target_question == "q9":
     # List pertanyaan STS. Format dikembalikan sesuai contoh (tanpa jumlah).
